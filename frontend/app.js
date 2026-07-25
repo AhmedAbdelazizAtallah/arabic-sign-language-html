@@ -86,50 +86,47 @@ fileInput.onchange = async (e) => {
         stopMedia();
         video.classList.add('hidden');
         image.classList.remove('hidden');
-        image.src = URL.createObjectURL(file);
         
+        // عرض الصورة المرفوعة مبدئياً
+        image.src = URL.createObjectURL(file);
         liveResult.textContent = "⏳ جاري التحليل...";
         
         const formData = new FormData();
         formData.append("file", file);
         
         try {
-            // استخدام رابط صريح وديناميكي بدون كاش
-            const targetUrl = `${window.location.origin}/detect-image`;
-            console.log("Sending request to:", targetUrl);
-
-            const res = await fetch(targetUrl, { 
+            // استخدام رابط السيرفر الحالي تلقائياً
+            const res = await fetch('/detect-image', { 
                 method: "POST", 
                 body: formData 
             });
 
             if (!res.ok) {
-                throw new Error(`Server status: ${res.status}`);
+                throw new Error(`Server Error: ${res.status}`);
             }
 
             const data = await res.json();
-            console.log("Server Response:", data);
-            
-            // 1. عرض الصورة المرسومة من السيرفر فوراً
+
+            // 1. تحديث الصورة بالصورة المعالجة المرسومة من الموديل
             if (data.image) {
                 image.src = "data:image/jpeg;base64," + data.image;
             }
-            
-            // 2. تحديث النتيجة بغض النظر عن نسبة الثقة لرؤية ما يراه الموديل
+
+            // 2. عرض الحرف ونسبة الثقة
             if (data.label) {
                 const confPercent = Math.round((data.confidence || 0) * 100);
                 liveResult.textContent = `${data.label} (${confPercent}%)`;
-                
+
                 // إضافة الحرف للجملة
-                currentText += labelTranslationMap[data.label] || data.label;
+                currentText += data.label;
                 updateUI();
             } else {
-                liveResult.textContent = "❌ لم يتم اكتشاف أي إشارة في الصورة";
+                liveResult.textContent = "❌ لم يتم التعرف على إشارة";
             }
 
         } catch (err) {
-            console.error("Fetch Error:", err);
-            liveResult.textContent = "⚠️ فشل الاتصال بالسيرفر";
+            console.error("Image detection error:", err);
+            liveResult.textContent = "⚠️ حدث خطأ أثناء معالجة النتيجة";
         }
     }
     fileInput.value = ""; 
