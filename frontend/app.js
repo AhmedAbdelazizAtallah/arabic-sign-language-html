@@ -87,6 +87,7 @@ fileInput.onchange = async (e) => {
         video.classList.add('hidden');
         image.classList.remove('hidden');
         image.src = URL.createObjectURL(file);
+        
         liveResult.textContent = "جاري التحليل...";
         
         const formData = new FormData();
@@ -96,14 +97,24 @@ fileInput.onchange = async (e) => {
             const res = await fetch(`${API_BASE}/detect-image`, { method: "POST", body: formData });
             const data = await res.json();
             
-            if (data.image) image.src = "data:image/jpeg;base64," + data.image;
-            if (data.label) {
-                for(let i=0; i<STABILITY_FRAMES; i++) handleDetection(data.label, data.confidence);
+            // عرض الصورة المعالجة من الموديل
+            if (data.image) {
+                image.src = "data:image/jpeg;base64," + data.image;
+            }
+            
+            // التأكد من وجود إشارة مقبولة
+            if (data.label && data.confidence >= MIN_CONFIDENCE) {
+                liveResult.textContent = `${data.label} (${Math.round(data.confidence * 100)}%)`;
+                
+                // إضافتها للجملة فوراً
+                currentText += data.label;
+                updateUI();
             } else {
-                liveResult.textContent = "لم يتم اكتشاف إشارة";
+                liveResult.textContent = "لم يتم اكتشاف إشارة ⚠️";
             }
         } catch (err) {
-            liveResult.textContent = "حدث خطأ";
+            console.error(err);
+            liveResult.textContent = "حدث خطأ أثناء التحليل ❌";
         }
     }
     fileInput.value = ""; 
