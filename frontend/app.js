@@ -24,7 +24,7 @@ let currentText = "";
 let lastDetected = "";
 let inCooldown = false;
 let currentMode = "webcam"; 
-let videoInterval = null; // متغير المؤقت لمعالجة الفيديو
+let videoInterval = null; 
 
 const COOLDOWN_MS = 1000;   
 
@@ -91,45 +91,53 @@ fileInput.onchange = async (e) => {
         video.src = videoURL;
         
         let lastVideoLabel = "";
+        let isProcessingFrame = false; // لمنع تراكم الفريمات وحدوث التغبيش
 
         video.onloadeddata = () => {
             video.play().catch(err => console.log("خطأ تشغيل الفيديو:", err));
-            liveResult.textContent = "⏳ جاري تحليل الفيديو...";
+            liveResult.textContent = "⏳ جاري تحليل الفيديو بذكاء...";
 
-            // إرسال فريم كل 150ms للباك إند بدقة متزنة
+            // قراءة الإطارات كل 200 ملي ثانية بشرط جاهزية الخادم
             videoInterval = setInterval(() => {
-                if (video.paused || video.ended) return;
+                if (video.paused || video.ended || isProcessingFrame) return;
 
-                canvas.width = 416; // دقة أعلى لرؤية تفاصيل الأصابع
-                canvas.height = (video.videoHeight / video.videoWidth) * 416 || 312;
+                isProcessingFrame = true; // إغلاق المعالجة لحين استقبال رد السيرفر
+
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
                 canvas.toBlob(async (blob) => {
-                    if (!blob) return;
+                    if (!blob) {
+                        isProcessingFrame = false;
+                        return;
+                    }
                     const formData = new FormData();
                     formData.append("file", blob, "frame.jpg");
 
                     try {
                         const res = await fetch(`${API_BASE}/detect-image`, { method: "POST", body: formData });
-                        if (!res.ok) return;
+                        if (res.ok) {
+                            const data = await res.json();
 
-                        const data = await res.json();
+                            if (data.label && data.confidence >= 0.30) {
+                                const confPercent = Math.round(data.confidence * 100);
+                                liveResult.textContent = `${data.label} (${confPercent}%)`;
 
-                        if (data.label && data.confidence >= 0.30) {
-                            const confPercent = Math.round(data.confidence * 100);
-                            liveResult.textContent = `${data.label} (${confPercent}%)`;
-
-                            if (data.label !== lastVideoLabel) {
-                                currentText += data.label;
-                                lastVideoLabel = data.label;
-                                updateUI();
+                                if (data.label !== lastVideoLabel) {
+                                    currentText += data.label;
+                                    lastVideoLabel = data.label;
+                                    updateUI();
+                                }
                             }
                         }
                     } catch (err) {
                         console.error("Video processing error:", err);
+                    } finally {
+                        isProcessingFrame = false; // فتح المعالجة للإطار التالي
                     }
-                }, 'image/jpeg', 0.6);
-            }, 150);
+                }, 'image/jpeg', 0.85); // رفع جودة الصورة لـ 85% للحد من التشويش
+            }, 200);
         };
 
         video.onended = () => {
@@ -231,6 +239,8 @@ function sendFrame() {
 
 function updateUI() {
     sentenceBox.innerHTML = currentText || '<span class="opacity-40 text-lg font-normal">ابدأ بالإشارة...</span>';
+    // التمرير التلقائي لأسفل عند كتابة نص طويل
+    sentenceBox.scrollTop = sentenceBox.scrollHeight;
 }
 
 // ================= 4. أدوات التحكم والخدمات =================
