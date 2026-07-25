@@ -1,4 +1,4 @@
-// الروابط الديناميكية (تكتشف تلقائياً إذا كانت تعمل محلياً أو على سيرفر)
+// الروابط الديناميكية (تكتشف تلقائياً البيئة)
 const API_BASE = window.location.origin;
 const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
 const WS_URL = wsProtocol + window.location.host + "/ws/detect";
@@ -19,20 +19,18 @@ const btnVideo = document.getElementById('btnVideo');
 const btnImage = document.getElementById('btnImage');
 
 // متغيرات النظام
-let ws;
+let ws = null;
 let currentText = "";
 let lastDetected = "";
-let stabilityCount = 0;
 let inCooldown = false;
 let currentMode = "webcam"; 
 
-const STABILITY_FRAMES = 8; 
-const COOLDOWN_MS = 1000;   
-const MIN_CONFIDENCE = 0.5; 
+const COOLDOWN_MS = 1200; // وقت الانتظار لمنع تكرار إضافة نفس الحرف فورياً
 
 // ================= 1. إدارة الوسائط =================
 
 function stopMedia() {
+    video.ontimeupdate = null; // إيقاف معالجة الفيديو عند التنقل
     if (video.srcObject) {
         video.srcObject.getTracks().forEach(track => track.stop());
         video.srcObject = null;
@@ -70,24 +68,67 @@ fileInput.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // 🎥 1. التعامل الذكي مع الفيديو المرفوع
     if (file.type.startsWith('video/')) {
         currentMode = "video";
         updateTabStyles(btnVideo);
         stopMedia();
+
         image.classList.add('hidden');
         video.classList.remove('hidden');
         video.classList.remove('scale-x-[-1]');
+
         video.src = URL.createObjectURL(file);
         video.play();
+
+        let lastVideoLabel = "";
+
+        // التتبع الذكي أثناء تقدم خط زمن الفيديو
+        video.ontimeupdate = async () => {
+            if (video.paused || video.ended) return;
+
+            // أخذ فريم خفيف أبعاده 320px
+            canvas.width = 320;
+            canvas.height = (video.videoHeight / video.videoWidth) * 320 || 240;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(async (blob) => {
+                if (!blob) return;
+                const formData = new FormData();
+                formData.append("file", blob, "frame.jpg");
+
+                try {
+                    const res = await fetch(`${API_BASE}/detect-image`, { method: "POST", body: formData });
+                    if (!res.ok) return;
+
+                    const data = await res.json();
+
+                    if (data.label && data.confidence >= 0.55) {
+                        const confPercent = Math.round(data.confidence * 100);
+                        liveResult.textContent = `${data.label} (${confPercent}%)`;
+
+                        // لا نضيف الحرف للجملة إلا إذا تغير عن السلسلة السابقة
+                        if (data.label !== lastVideoLabel) {
+                            currentText += data.label;
+                            lastVideoLabel = data.label;
+                            updateUI();
+                        }
+                    }
+                } catch (err) {
+                    console.error("خطأ معالجة الفيديو:", err);
+                }
+            }, 'image/jpeg', 0.5);
+        };
     } 
+    // 🖼️ 2. التعامل مع الصورة
     else if (file.type.startsWith('image/')) {
         currentMode = "image";
         updateTabStyles(btnImage);
         stopMedia();
+
         video.classList.add('hidden');
         image.classList.remove('hidden');
         
-        // عرض الصورة المرفوعة مبدئياً
         image.src = URL.createObjectURL(file);
         liveResult.textContent = "⏳ جاري التحليل...";
         
@@ -95,29 +136,20 @@ fileInput.onchange = async (e) => {
         formData.append("file", file);
         
         try {
-            // استخدام رابط السيرفر الحالي تلقائياً
-            const res = await fetch('/detect-image', { 
-                method: "POST", 
-                body: formData 
-            });
+            const res = await fetch(`${API_BASE}/detect-image`, { method: "POST", body: formData });
 
-            if (!res.ok) {
-                throw new Error(`Server Error: ${res.status}`);
-            }
+            if (!res.ok) throw new Error(`Server Error: ${res.status}`);
 
             const data = await res.json();
 
-            // 1. تحديث الصورة بالصورة المعالجة المرسومة من الموديل
             if (data.image) {
                 image.src = "data:image/jpeg;base64," + data.image;
             }
 
-            // 2. عرض الحرف ونسبة الثقة
             if (data.label) {
                 const confPercent = Math.round((data.confidence || 0) * 100);
                 liveResult.textContent = `${data.label} (${confPercent}%)`;
 
-                // إضافة الحرف للجملة
                 currentText += data.label;
                 updateUI();
             } else {
@@ -140,12 +172,28 @@ function connectWebSocket() {
     ws.onopen = () => {
         statusBadge.textContent = "متصل ✅";
         statusBadge.className = "bg-green-500/80 px-4 py-2 rounded-full backdrop-blur-sm text-sm";
-        setInterval(sendFrame, 100); 
+        setInterval(sendFrame, 90); // إرسال إطار كل 90ms لسرعة متزنة
     };
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        handleDetection(data.label, data.confidence);
+        
+        // استخدام خاصية الاستقرار الذكية (is_stable) المرسلة من السيرفر
+        if (data.is_stable && data.label) {
+            const confPercent = Math.round((data.confidence || 0) * 100);
+            liveResult.textContent = `${data.label} (${confPercent}%)`;
+
+            if (!inCooldown && data.label !== lastDetected) {
+                currentText += data.label;
+                lastDetected = data.label;
+                updateUI();
+                
+                inCooldown = true;
+                setTimeout(() => { inCooldown = false; }, COOLDOWN_MS);
+            }
+        } else {
+            if (currentMode === "webcam") liveResult.textContent = "⏳ جاري التتبع...";
+        }
     };
 
     ws.onclose = () => {
@@ -156,54 +204,33 @@ function connectWebSocket() {
 }
 
 function sendFrame() {
-    if (ws.readyState === WebSocket.OPEN && video.videoWidth > 0 && currentMode !== "image") {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+    if (ws && ws.readyState === WebSocket.OPEN && video.videoWidth > 0 && currentMode === "webcam") {
+        canvas.width = 320; // إرسال أبعاد خفيفة للباك إند
+        canvas.height = (video.videoHeight / video.videoWidth) * 320 || 240;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         ws.send(canvas.toDataURL('image/jpeg', 0.5));
     }
 }
 
-// ================= 3. منطق الجملة =================
-
-function handleDetection(label, conf) {
-    if (label && conf >= MIN_CONFIDENCE) {
-        liveResult.textContent = `${label} (${Math.round(conf * 100)}%)`;
-
-        if (!inCooldown) {
-            if (label === lastDetected) {
-                stabilityCount++;
-                if (stabilityCount >= STABILITY_FRAMES) {
-                    currentText += label;
-                    updateUI();
-                    inCooldown = true;
-                    setTimeout(() => { inCooldown = false; }, COOLDOWN_MS);
-                    stabilityCount = 0;
-                }
-            } else {
-                lastDetected = label;
-                stabilityCount = 1;
-            }
-        }
-    } else {
-        if(currentMode !== "image") liveResult.textContent = "-";
-        stabilityCount = 0;
-        lastDetected = "";
-    }
-}
+// ================= 3. منطق الجملة والواجهة =================
 
 function updateUI() {
     sentenceBox.innerHTML = currentText || '<span class="opacity-40 text-lg font-normal">ابدأ بالإشارة...</span>';
 }
 
-// ================= 4. أدوات التحكم =================
+// ================= 4. أدوات التحكم والخدمات =================
 
 document.getElementById('btnSpace').onclick = () => { currentText += " "; updateUI(); };
 document.getElementById('btnDel').onclick = () => { currentText = currentText.slice(0, -1); updateUI(); };
-document.getElementById('btnClear').onclick = () => { currentText = ""; updateUI(); document.getElementById('translationResultBox').classList.add("hidden"); };
+document.getElementById('btnClear').onclick = () => { 
+    currentText = ""; 
+    lastDetected = "";
+    updateUI(); 
+    document.getElementById('translationResultBox').classList.add("hidden"); 
+};
 
 async function playAudio(text, lang) {
-    if(!text) return;
+    if (!text) return;
     try {
         const res = await fetch(`${API_BASE}/tts`, {
             method: "POST",
@@ -228,7 +255,7 @@ document.getElementById('btnTranslate').onclick = async () => {
             body: JSON.stringify({ text: currentText, target_lang: document.getElementById('targetLang').value })
         });
         const data = await res.json();
-        if(data.translated_text) {
+        if (data.translated_text) {
             document.getElementById('translationText').textContent = data.translated_text;
             document.getElementById('translationResultBox').classList.remove("hidden");
         }
