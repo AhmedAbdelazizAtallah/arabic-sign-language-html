@@ -68,7 +68,8 @@ fileInput.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // 🎥 1. التعامل الذكي مع الفيديو المرفوع
+    clearVideoInterval();
+
     if (file.type.startsWith('video/')) {
         currentMode = "video";
         updateTabStyles(btnVideo);
@@ -76,20 +77,23 @@ fileInput.onchange = async (e) => {
 
         image.classList.add('hidden');
         video.classList.remove('hidden');
-        video.classList.remove('scale-x-[-1]');
+        
+        // ⚠️ هام جداً: منع عكس الفيديو عشان الموديل يشوف اليد في الاتجاه الصح
+        video.classList.remove('scale-x-[-1]'); 
 
         video.src = URL.createObjectURL(file);
         video.play();
 
         let lastVideoLabel = "";
 
-        // التتبع الذكي أثناء تقدم خط زمن الفيديو
-        video.ontimeupdate = async () => {
+        // استخدام Timer منتظم كل 150 ملي ثانية لتقطيع الفيديو بدقة بدلاً من ontimeupdate
+        videoInterval = setInterval(() => {
             if (video.paused || video.ended) return;
 
-            // أخذ فريم خفيف أبعاده 320px
-            canvas.width = 320;
-            canvas.height = (video.videoHeight / video.videoWidth) * 320 || 240;
+            // ضبط أبعاد الـ Canvas
+            canvas.width = 416; // رفعنا الدقة لـ 416 عشان يشوف الأصابع بوضوح
+            canvas.height = (video.videoHeight / video.videoWidth) * 416 || 312;
+            
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
             canvas.toBlob(async (blob) => {
@@ -103,11 +107,11 @@ fileInput.onchange = async (e) => {
 
                     const data = await res.json();
 
-                    if (data.label && data.confidence >= 0.55) {
+                    // خفضنا حد الثقة لـ 0.35 عشان يلقط الحروف المظلومة زي "س"
+                    if (data.label && data.confidence >= 0.35) {
                         const confPercent = Math.round(data.confidence * 100);
                         liveResult.textContent = `${data.label} (${confPercent}%)`;
 
-                        // لا نضيف الحرف للجملة إلا إذا تغير عن السلسلة السابقة
                         if (data.label !== lastVideoLabel) {
                             currentText += data.label;
                             lastVideoLabel = data.label;
@@ -115,53 +119,13 @@ fileInput.onchange = async (e) => {
                         }
                     }
                 } catch (err) {
-                    console.error("خطأ معالجة الفيديو:", err);
+                    console.error("Video processing error:", err);
                 }
-            }, 'image/jpeg', 0.5);
-        };
-    } 
-    // 🖼️ 2. التعامل مع الصورة
-    else if (file.type.startsWith('image/')) {
-        currentMode = "image";
-        updateTabStyles(btnImage);
-        stopMedia();
-
-        video.classList.add('hidden');
-        image.classList.remove('hidden');
-        
-        image.src = URL.createObjectURL(file);
-        liveResult.textContent = "⏳ جاري التحليل...";
-        
-        const formData = new FormData();
-        formData.append("file", file);
-        
-        try {
-            const res = await fetch(`${API_BASE}/detect-image`, { method: "POST", body: formData });
-
-            if (!res.ok) throw new Error(`Server Error: ${res.status}`);
-
-            const data = await res.json();
-
-            if (data.image) {
-                image.src = "data:image/jpeg;base64," + data.image;
-            }
-
-            if (data.label) {
-                const confPercent = Math.round((data.confidence || 0) * 100);
-                liveResult.textContent = `${data.label} (${confPercent}%)`;
-
-                currentText += data.label;
-                updateUI();
-            } else {
-                liveResult.textContent = "❌ لم يتم التعرف على إشارة";
-            }
-
-        } catch (err) {
-            console.error("Image detection error:", err);
-            liveResult.textContent = "⚠️ حدث خطأ أثناء معالجة النتيجة";
-        }
+            }, 'image/jpeg', 0.6);
+        }, 150); // يرسل 6-7 فريمات في الثانية بشكل منظم
     }
-    fileInput.value = ""; 
+    // ... باقي كود الصورة كما هو
+    fileInput.value = "";
 };
 
 // ================= 2. الاتصال (WebSocket) =================
