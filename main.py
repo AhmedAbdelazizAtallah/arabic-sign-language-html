@@ -82,11 +82,14 @@ async def detect_image(file: UploadFile = File(...)):
     if frame is None:
         return {"error": "صورة غير صالحة"}
 
-    results = model.predict(frame, conf=0.5, verbose=False)
+    # ⚡ تسريع المعالجة: تصغير حجم الصورة الممررة للموديل لـ 320px لسرعة فائقة
+    results = model.predict(frame, imgsz=320, conf=0.4, verbose=False)
     res = results[0]
     
     annotated = res.plot()
-    _, buffer = cv2.imencode('.jpg', annotated)
+    
+    # ضغط الصورة الناتجة لتقليل حجم النقل عبر الشبكة
+    _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
     img_base64 = base64.b64encode(buffer).decode('utf-8')
     
     detection_result = {"label": None, "confidence": 0.0, "image": img_base64}
