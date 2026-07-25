@@ -1,4 +1,4 @@
-// الروابط الديناميكية (تكتشف تلقائياً البيئة)
+// ================= 0. الروابط والعناصر الأساسية =================
 const API_BASE = window.location.origin;
 const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
 const WS_URL = wsProtocol + window.location.host + "/ws/detect";
@@ -24,13 +24,21 @@ let currentText = "";
 let lastDetected = "";
 let inCooldown = false;
 let currentMode = "webcam"; 
+let videoInterval = null; // متغير المؤقت لمعالجة الفيديو
 
-const COOLDOWN_MS = 1200; // وقت الانتظار لمنع تكرار إضافة نفس الحرف فورياً
+const COOLDOWN_MS = 1000;   
 
-// ================= 1. إدارة الوسائط =================
+// ================= 1. إدارة الوسائط والفيديو =================
+
+function clearVideoInterval() {
+    if (videoInterval) {
+        clearInterval(videoInterval);
+        videoInterval = null;
+    }
+}
 
 function stopMedia() {
-    video.ontimeupdate = null; // إيقاف معالجة الفيديو عند التنقل
+    clearVideoInterval();
     if (video.srcObject) {
         video.srcObject.getTracks().forEach(track => track.stop());
         video.srcObject = null;
@@ -46,13 +54,13 @@ function updateTabStyles(activeBtn) {
     activeBtn.className = "flex-1 py-2 rounded-lg bg-[#7c5cff22] text-[#7c5cff] font-bold transition-all text-sm md:text-base";
 }
 
-// الكاميرا
+// الكاميرا المباشرة
 btnWebcam.onclick = () => {
     currentMode = "webcam";
     updateTabStyles(btnWebcam);
     image.classList.add('hidden');
     video.classList.remove('hidden');
-    video.classList.add('scale-x-[-1]');
+    video.classList.add('scale-x-[-1]'); // عكس الكاميرا المباشرة فقط
     stopMedia();
     
     navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
@@ -60,7 +68,7 @@ btnWebcam.onclick = () => {
         .catch(err => alert("يرجى السماح بالوصول للكاميرا."));
 };
 
-// الفيديو والصورة
+// رفع ملف فيديو أو صورة
 btnVideo.onclick = () => { fileInput.accept = "video/*"; fileInput.click(); };
 btnImage.onclick = () => { fileInput.accept = "image/*"; fileInput.click(); };
 
@@ -68,67 +76,111 @@ fileInput.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    clearVideoInterval();
+    stopMedia();
 
+    // 🎥 1. حالة رفع فيديو
     if (file.type.startsWith('video/')) {
         currentMode = "video";
         updateTabStyles(btnVideo);
-        stopMedia();
 
         image.classList.add('hidden');
         video.classList.remove('hidden');
+        video.classList.remove('scale-x-[-1]'); // عدم عكس الفيديو المسجل
+
+        const videoURL = URL.createObjectURL(file);
+        video.src = videoURL;
         
-        // ⚠️ هام جداً: منع عكس الفيديو عشان الموديل يشوف اليد في الاتجاه الصح
-        video.classList.remove('scale-x-[-1]'); 
-
-        video.src = URL.createObjectURL(file);
-        video.play();
-
         let lastVideoLabel = "";
 
-        // استخدام Timer منتظم كل 150 ملي ثانية لتقطيع الفيديو بدقة بدلاً من ontimeupdate
-        videoInterval = setInterval(() => {
-            if (video.paused || video.ended) return;
+        video.onloadeddata = () => {
+            video.play().catch(err => console.log("خطأ تشغيل الفيديو:", err));
+            liveResult.textContent = "⏳ جاري تحليل الفيديو...";
 
-            // ضبط أبعاد الـ Canvas
-            canvas.width = 416; // رفعنا الدقة لـ 416 عشان يشوف الأصابع بوضوح
-            canvas.height = (video.videoHeight / video.videoWidth) * 416 || 312;
-            
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // إرسال فريم كل 150ms للباك إند بدقة متزنة
+            videoInterval = setInterval(() => {
+                if (video.paused || video.ended) return;
 
-            canvas.toBlob(async (blob) => {
-                if (!blob) return;
-                const formData = new FormData();
-                formData.append("file", blob, "frame.jpg");
+                canvas.width = 416; // دقة أعلى لرؤية تفاصيل الأصابع
+                canvas.height = (video.videoHeight / video.videoWidth) * 416 || 312;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                try {
-                    const res = await fetch(`${API_BASE}/detect-image`, { method: "POST", body: formData });
-                    if (!res.ok) return;
+                canvas.toBlob(async (blob) => {
+                    if (!blob) return;
+                    const formData = new FormData();
+                    formData.append("file", blob, "frame.jpg");
 
-                    const data = await res.json();
+                    try {
+                        const res = await fetch(`${API_BASE}/detect-image`, { method: "POST", body: formData });
+                        if (!res.ok) return;
 
-                    // خفضنا حد الثقة لـ 0.35 عشان يلقط الحروف المظلومة زي "س"
-                    if (data.label && data.confidence >= 0.35) {
-                        const confPercent = Math.round(data.confidence * 100);
-                        liveResult.textContent = `${data.label} (${confPercent}%)`;
+                        const data = await res.json();
 
-                        if (data.label !== lastVideoLabel) {
-                            currentText += data.label;
-                            lastVideoLabel = data.label;
-                            updateUI();
+                        if (data.label && data.confidence >= 0.30) {
+                            const confPercent = Math.round(data.confidence * 100);
+                            liveResult.textContent = `${data.label} (${confPercent}%)`;
+
+                            if (data.label !== lastVideoLabel) {
+                                currentText += data.label;
+                                lastVideoLabel = data.label;
+                                updateUI();
+                            }
                         }
+                    } catch (err) {
+                        console.error("Video processing error:", err);
                     }
-                } catch (err) {
-                    console.error("Video processing error:", err);
-                }
-            }, 'image/jpeg', 0.6);
-        }, 150); // يرسل 6-7 فريمات في الثانية بشكل منظم
+                }, 'image/jpeg', 0.6);
+            }, 150);
+        };
+
+        video.onended = () => {
+            clearVideoInterval();
+            liveResult.textContent = "✅ اكتمل تحليل الفيديو";
+        };
+    } 
+    // 🖼️ 2. حالة رفع صورة
+    else if (file.type.startsWith('image/')) {
+        currentMode = "image";
+        updateTabStyles(btnImage);
+
+        video.classList.add('hidden');
+        image.classList.remove('hidden');
+        
+        image.src = URL.createObjectURL(file);
+        liveResult.textContent = "⏳ جاري التحليل...";
+        
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        try {
+            const res = await fetch(`${API_BASE}/detect-image`, { method: "POST", body: formData });
+
+            if (!res.ok) throw new Error(`Server Error: ${res.status}`);
+
+            const data = await res.json();
+
+            if (data.image) {
+                image.src = "data:image/jpeg;base64," + data.image;
+            }
+
+            if (data.label) {
+                const confPercent = Math.round((data.confidence || 0) * 100);
+                liveResult.textContent = `${data.label} (${confPercent}%)`;
+
+                currentText += data.label;
+                updateUI();
+            } else {
+                liveResult.textContent = "❌ لم يتم التعرف على إشارة";
+            }
+
+        } catch (err) {
+            console.error("Image detection error:", err);
+            liveResult.textContent = "⚠️ فشل الاتصال بالسيرفر";
+        }
     }
-    // ... باقي كود الصورة كما هو
-    fileInput.value = "";
+    fileInput.value = ""; 
 };
 
-// ================= 2. الاتصال (WebSocket) =================
+// ================= 2. الاتصال المباشر (WebSocket) =================
 
 function connectWebSocket() {
     ws = new WebSocket(WS_URL);
@@ -136,13 +188,12 @@ function connectWebSocket() {
     ws.onopen = () => {
         statusBadge.textContent = "متصل ✅";
         statusBadge.className = "bg-green-500/80 px-4 py-2 rounded-full backdrop-blur-sm text-sm";
-        setInterval(sendFrame, 90); // إرسال إطار كل 90ms لسرعة متزنة
+        setInterval(sendFrame, 100); 
     };
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         
-        // استخدام خاصية الاستقرار الذكية (is_stable) المرسلة من السيرفر
         if (data.is_stable && data.label) {
             const confPercent = Math.round((data.confidence || 0) * 100);
             liveResult.textContent = `${data.label} (${confPercent}%)`;
@@ -169,14 +220,14 @@ function connectWebSocket() {
 
 function sendFrame() {
     if (ws && ws.readyState === WebSocket.OPEN && video.videoWidth > 0 && currentMode === "webcam") {
-        canvas.width = 320; // إرسال أبعاد خفيفة للباك إند
-        canvas.height = (video.videoHeight / video.videoWidth) * 320 || 240;
+        canvas.width = 416;
+        canvas.height = (video.videoHeight / video.videoWidth) * 416 || 312;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         ws.send(canvas.toDataURL('image/jpeg', 0.5));
     }
 }
 
-// ================= 3. منطق الجملة والواجهة =================
+// ================= 3. إدارة الواجهة للجملة =================
 
 function updateUI() {
     sentenceBox.innerHTML = currentText || '<span class="opacity-40 text-lg font-normal">ابدأ بالإشارة...</span>';
