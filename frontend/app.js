@@ -88,33 +88,48 @@ fileInput.onchange = async (e) => {
         image.classList.remove('hidden');
         image.src = URL.createObjectURL(file);
         
-        liveResult.textContent = "جاري التحليل...";
+        liveResult.textContent = "⏳ جاري التحليل...";
         
         const formData = new FormData();
         formData.append("file", file);
         
         try {
-            const res = await fetch(`${API_BASE}/detect-image`, { method: "POST", body: formData });
+            // استخدام رابط صريح وديناميكي بدون كاش
+            const targetUrl = `${window.location.origin}/detect-image`;
+            console.log("Sending request to:", targetUrl);
+
+            const res = await fetch(targetUrl, { 
+                method: "POST", 
+                body: formData 
+            });
+
+            if (!res.ok) {
+                throw new Error(`Server status: ${res.status}`);
+            }
+
             const data = await res.json();
+            console.log("Server Response:", data);
             
-            // عرض الصورة المعالجة من الموديل
+            // 1. عرض الصورة المرسومة من السيرفر فوراً
             if (data.image) {
                 image.src = "data:image/jpeg;base64," + data.image;
             }
             
-            // التأكد من وجود إشارة مقبولة
-            if (data.label && data.confidence >= MIN_CONFIDENCE) {
-                liveResult.textContent = `${data.label} (${Math.round(data.confidence * 100)}%)`;
+            // 2. تحديث النتيجة بغض النظر عن نسبة الثقة لرؤية ما يراه الموديل
+            if (data.label) {
+                const confPercent = Math.round((data.confidence || 0) * 100);
+                liveResult.textContent = `${data.label} (${confPercent}%)`;
                 
-                // إضافتها للجملة فوراً
-                currentText += data.label;
+                // إضافة الحرف للجملة
+                currentText += labelTranslationMap[data.label] || data.label;
                 updateUI();
             } else {
-                liveResult.textContent = "لم يتم اكتشاف إشارة ⚠️";
+                liveResult.textContent = "❌ لم يتم اكتشاف أي إشارة في الصورة";
             }
+
         } catch (err) {
-            console.error(err);
-            liveResult.textContent = "حدث خطأ أثناء التحليل ❌";
+            console.error("Fetch Error:", err);
+            liveResult.textContent = "⚠️ فشل الاتصال بالسيرفر";
         }
     }
     fileInput.value = ""; 
