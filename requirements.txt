@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+ultralytics
+opencv-python-headless
+websockets
+deep-translator
+gTTS
+pydantic

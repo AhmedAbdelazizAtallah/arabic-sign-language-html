@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# MacOS
+.DS_Store
+
+# Ignore large models if they exceed GitHub's 100MB limit
+# إذا كان حجم موديل yolov26s.pt أكبر من 100 ميجا، احذف علامة # من السطر القادم
+# backend/models/*.pt
