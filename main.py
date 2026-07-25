@@ -110,13 +110,12 @@ async def detect_image(file: UploadFile = File(...)):
     if frame is None:
         return {"error": "صورة غير صالحة"}
 
-    # تسريع المعالجة بـ imgsz=320
-    results = model.predict(frame, imgsz=320, conf=0.4, verbose=False)
+    # 🎯 رفعنا الـ imgsz لـ 416 وخفضنا الـ conf لـ 0.30 عشان لغة الإشارة محتاجة تفاصيل الأصابع
+    results = model.predict(frame, imgsz=416, conf=0.30, verbose=False)
     res = results[0]
     
     annotated = res.plot()
     
-    # ضغط الصورة الناتجة لتقليل حجم النقل
     _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
     img_base64 = base64.b64encode(buffer).decode('utf-8')
     
@@ -128,6 +127,7 @@ async def detect_image(file: UploadFile = File(...)):
         detection_result["confidence"] = float(res.boxes.conf[top_idx].item())
         
     return detection_result
+
 
 # 3. الترجمة
 @app.post("/translate")
