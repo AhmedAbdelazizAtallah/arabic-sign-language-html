@@ -1,78 +1,224 @@
-\# 🤟 مترجم لغة الإشارة العربية (Arabic Sign Language AI Translator)
+# 🤟 Arabic Sign Language AI Translator
 
+<p align="center">
+  <img src="assets/banner.png" width="900" alt="Arabic Sign Language AI">
+</p>
 
+<p align="center">
+An AI-powered real-time Arabic Sign Language Translator built with <b>YOLOv26</b>, <b>FastAPI</b>, and a modern Web interface.
+</p>
 
-تطبيق ويب متكامل (Full-Stack) يعتمد على الذكاء الاصطناعي لترجمة لغة الإشارة العربية فورياً. يستخدم التطبيق أحدث تقنيات التعرف على الكائنات (YOLOv26s) مع واجهة مستخدم تفاعلية وسريعة لترجمة الحركات إلى نصوص منطوقة ومكتوبة بذكاء.
+<p align="center">
 
+![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
+![YOLO](https://img.shields.io/badge/YOLO-v26-orange)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
+</p>
 
-\---
+---
 
+# 📖 Overview
 
+Arabic Sign Language AI Translator is a full-stack AI application that translates Arabic Sign Language into readable and spoken text in real time.
 
-\## ✨ المميزات (Features)
+The system utilizes a custom-trained **YOLOv26** model to recognize sign language gestures from:
 
+* 📷 Live webcam
+* 🖼 Images
+* 🎥 Video files
 
+The recognized characters are intelligently combined into words and sentences before being translated and spoken using Text-to-Speech.
 
-\- \*\*⚡ تحليل فوري (Real-time):\*\* دعم كامل للكاميرا المباشرة بسرعة عالية تصل إلى 30 إطار/ثانية باستخدام تقنية WebSockets.
+---
 
-\- \*\*📂 دعم الوسائط المتعددة:\*\* إمكانية رفع \*\*صور ثابتة\*\* أو \*\*فيديوهات مسجلة\*\* لتحليلها واستخراج الإشارات منها.
+# ✨ Features
 
-\- \*\*🧠 البناء الذكي للجمل:\*\* نظام (Stability Threshold) يمنع التكرار العشوائي للحروف ويضيف الحرف تلقائياً بمجرد التأكد من ثبات الإشارة.
+## 🎥 Real-Time Detection
 
-\- \*\*🌐 الترجمة الفورية:\*\* ترجمة الجمل المُكوّنة من العربية إلى عدة لغات (الإنجليزية، الفرنسية، الألمانية).
+* Live webcam recognition
+* Up to 30 FPS processing
+* WebSocket streaming
 
-\- \*\*🔊 النطق الصوتي (TTS):\*\* تحويل النصوص العربية أو المترجمة إلى صوت مسموع بضغطة زر.
+## 🖼 Image Recognition
 
-\- \*\*📱 تصميم متجاوب (Responsive):\*\* واجهة مستخدم عصرية باستخدام Tailwind CSS، تعمل بكفاءة على شاشات الهواتف والكمبيوتر.
+Upload an image containing sign language and receive instant predictions.
 
+## 🎬 Video Recognition
 
+Analyze recorded videos frame by frame.
 
-\---
+## 🧠 Smart Sentence Builder
 
+* Stability Threshold
+* Removes repeated predictions
+* Automatically builds meaningful text
 
+## 🌍 Translation
 
-\## 🛠️ التقنيات المستخدمة (Tech Stack)
+Translate generated Arabic text into:
 
+* English
+* French
+* German
 
+## 🔊 Text To Speech
 
-\- \*\*الواجهة الأمامية (Frontend):\*\* HTML5, CSS3, JavaScript (Vanilla), Tailwind CSS.
+Convert recognized text into natural speech.
 
-\- \*\*الخادم (Backend):\*\* Python, FastAPI.
+## 📱 Responsive UI
 
-\- \*\*الذكاء الاصطناعي (AI \& CV):\*\* YOLOv26s, OpenCV, Ultralytics.
+Modern interface built using HTML, JavaScript and Tailwind CSS.
 
-\- \*\*البروتوكولات (Protocols):\*\* WebSockets للاتصال المباشر ونقل الفريمات.
+---
 
+# 🏗 Tech Stack
 
+| Layer           | Technology              |
+| --------------- | ----------------------- |
+| Frontend        | HTML5, CSS3, JavaScript |
+| Styling         | Tailwind CSS            |
+| Backend         | FastAPI                 |
+| AI Model        | YOLOv26                 |
+| Computer Vision | OpenCV                  |
+| Deep Learning   | Ultralytics             |
+| Communication   | WebSockets              |
 
-\---
+---
 
-
-
-\## 📁 هيكل المشروع (Project Structure)
-
-
+# 📂 Project Structure
 
 ```text
-
 arabic-sign-language-ai/
+│
+├── backend/
+│   ├── main.py
+│   ├── requirements.txt
+│   └── models/
+│       └── yolov26s.pt
+│
+├── frontend/
+│   ├── index.html
+│   ├── style.css
+│   ├── app.js
+│   └── assets/
+│
+├── outputs/
+│
+├── README.md
+└── LICENSE
+```
 
-├── models/
+---
 
-│   └── yolov26s.pt           # ملف الموديل المُدرّب (يجب إضافته هنا)
+# 🚀 Installation
 
-├── frontend/                 # مجلد واجهة المستخدم
+Clone the repository
 
-│   ├── index.html            # هيكل الصفحة
+```bash
+git clone https://github.com/yourusername/arabic-sign-language-ai.git
+```
 
-│   ├── style.css             # التصميم والألوان
+Move into the project
 
-│   └── app.js                # المنطق والاتصال بالخادم
+```bash
+cd arabic-sign-language-ai
+```
 
-├── main.py                   # كود الخادم (FastAPI) المدمج مع الواجهة
+Install dependencies
 
-├── requirements.txt          # المكتبات المطلوبة للتشغيل
+```bash
+pip install -r requirements.txt
+```
 
-└── README.md                 # ملف معلومات المشروع
+Run the backend
 
+```bash
+uvicorn backend.main:app --reload
+```
+
+Open your browser
+
+```
+http://localhost:8000
+```
+
+---
+
+# 🖥 Usage
+
+1. Start the FastAPI server.
+2. Open the web application.
+3. Choose:
+
+   * Webcam
+   * Image
+   * Video
+4. The model predicts sign language.
+5. Characters are converted into words.
+6. Translate or listen using Text-to-Speech.
+
+---
+
+# 📊 AI Model
+
+Model: **YOLOv26**
+
+Capabilities:
+
+* Arabic Sign Language Detection
+* High-speed inference
+* Real-time processing
+* Optimized for deployment
+
+---
+
+# 📸 Screenshots
+
+```
+assets/
+ ├── home.png
+ ├── webcam.png
+ ├── prediction.png
+ └── translation.png
+```
+
+---
+
+# 🔮 Future Improvements
+
+* Mobile Application
+* Sentence Correction using LLMs
+* Voice Commands
+* Cloud Deployment
+* User Accounts
+* Continuous Learning
+
+---
+
+# 🤝 Contributing
+
+Contributions are welcome!
+
+```bash
+Fork → Create Branch → Commit → Push → Pull Request
+```
+
+---
+
+# 📜 License
+
+This project is licensed under the MIT License.
+
+---
+
+# 👨‍💻 Author
+
+**Ahmed Abdelaziz Atallah**
+
+Artificial Intelligence Engineer • Data Analyst • Machine Learning Engineer
+
+GitHub: https://github.com/yourusername
+
+LinkedIn: https://linkedin.com/in/yourprofile
