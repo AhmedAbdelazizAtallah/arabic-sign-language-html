@@ -170,17 +170,6 @@ Capabilities:
 
 ---
 
-# 📸 Screenshots
-
-```
-assets/
- ├── home.png
- ├── webcam.png
- ├── prediction.png
- └── translation.png
-```
-
----
 
 # 🔮 Future Improvements
 
