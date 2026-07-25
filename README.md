@@ -1,10 +1,6 @@
 # 🤟 Arabic Sign Language AI Translator
 
 <p align="center">
-  <img src="assets/banner.png" width="900" alt="Arabic Sign Language AI">
-</p>
-
-<p align="center">
 An AI-powered real-time Arabic Sign Language Translator built with <b>YOLOv26</b>, <b>FastAPI</b>, and a modern Web interface.
 </p>
 
