@@ -212,7 +212,7 @@ function connectWebSocket() {
         }
     };
 
-    ws.onmessage = (event) => {
+ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         
         if (data.is_stable && data.label) {
@@ -231,9 +231,9 @@ function connectWebSocket() {
             if (currentMode === "webcam") liveResult.textContent = "⏳ جاري التتبع...";
         }
 
-        // لا نرسل الإطار الجديد إلا بعد استلام الرد لمنع التقطيع (Server Flooding)
+        // ✅ التعديل: إضافة تأخير 30 ملي ثانية (يعادل 33 FPS) لمنع خنق السيرفر
         if (currentMode === "webcam" && ws.readyState === WebSocket.OPEN) {
-            requestAnimationFrame(sendFrame);
+            setTimeout(sendFrame, 30); 
         }
     };
 
