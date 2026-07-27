@@ -43,7 +43,7 @@ class TTSRequest(BaseModel):
     text: str
     lang: str
 
-# 1. الاتصال المباشر (الكاميرا والفيديو مع التتبع الذكي) - [تم حل مشكلة التقطيع هنا]
+# 1. الاتصال المباشر (الكاميرا مع التتبع الذكي)
 @app.websocket("/ws/detect")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -66,8 +66,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             # تشغيل التتبع في مسار منفصل (Thread) لمنع تجميد الخادم (Event Loop)
+            # تم استخدام imgsz=416 لتتطابق مع الداتا التي تم تدريب الموديل عليها
             def run_inference():
-                return model.track(frame, imgsz=320, conf=0.45, persist=True, verbose=False)
+                return model.track(frame, imgsz=416, conf=0.45, persist=True, verbose=False)
             
             results = await asyncio.to_thread(run_inference)
             res = results[0]
