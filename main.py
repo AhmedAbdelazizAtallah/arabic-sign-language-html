@@ -3,6 +3,7 @@ import json
 import io
 import cv2
 import numpy as np
+import asyncio
 from collections import deque, Counter
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,7 +43,7 @@ class TTSRequest(BaseModel):
     text: str
     lang: str
 
-# 1. الاتصال المباشر (الكاميرا والفيديو مع التتبع الذكي)
+# 1. الاتصال المباشر (الكاميرا والفيديو مع التتبع الذكي) - [تم حل مشكلة التقطيع هنا]
 @app.websocket("/ws/detect")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -50,19 +51,25 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         while True:
-            data = await websocket.receive_text()
+            # استلام البيانات الثنائية (Bytes) بدلاً من Base64 لتخفيف الحمل وسرعة النقل
+            data = await websocket.receive_bytes()
+            
             if not model:
+                await websocket.send_text(json.dumps({"label": None, "confidence": 0.0, "is_stable": False}))
                 continue
                 
-            img_data = base64.b64decode(data.split(",")[1])
-            np_arr = np.frombuffer(img_data, np.uint8)
+            np_arr = np.frombuffer(data, np.uint8)
             frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             
             if frame is None:
+                await websocket.send_text(json.dumps({"label": None, "confidence": 0.0, "is_stable": False}))
                 continue
 
-            # استخدام التتبع الذكي بدلاً من التنبؤ الفردي (imgsz=320 لسرعةائقة)
-            results = model.track(frame, imgsz=320, conf=0.45, persist=True, verbose=False)
+            # تشغيل التتبع في مسار منفصل (Thread) لمنع تجميد الخادم (Event Loop)
+            def run_inference():
+                return model.track(frame, imgsz=320, conf=0.45, persist=True, verbose=False)
+            
+            results = await asyncio.to_thread(run_inference)
             res = results[0]
             
             current_label = None
@@ -88,6 +95,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     smart_label = most_common
                     is_stable = True
 
+            # إرسال النتيجة فور الانتهاء
             await websocket.send_text(json.dumps({
                 "label": smart_label,
                 "confidence": current_conf,
@@ -96,6 +104,8 @@ async def websocket_endpoint(websocket: WebSocket):
             
     except WebSocketDisconnect:
         print("العميل قطع الاتصال")
+    except Exception as e:
+        print(f"حدث خطأ أثناء الاتصال: {e}")
 
 # 2. تحليل الصور الثابتة
 @app.post("/detect-image")
@@ -110,7 +120,6 @@ async def detect_image(file: UploadFile = File(...)):
     if frame is None:
         return {"error": "صورة غير صالحة"}
 
-    # 🎯 رفعنا الـ imgsz لـ 416 وخفضنا الـ conf لـ 0.30 عشان لغة الإشارة محتاجة تفاصيل الأصابع
     results = model.predict(frame, imgsz=416, conf=0.30, verbose=False)
     res = results[0]
     
@@ -127,7 +136,6 @@ async def detect_image(file: UploadFile = File(...)):
         detection_result["confidence"] = float(res.boxes.conf[top_idx].item())
         
     return detection_result
-
 
 # 3. الترجمة
 @app.post("/translate")
