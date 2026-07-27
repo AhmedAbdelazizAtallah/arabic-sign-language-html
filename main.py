@@ -44,18 +44,19 @@ class TTSRequest(BaseModel):
     lang: str
 
 # 1. الاتصال المباشر (الكاميرا مع التتبع الذكي)
-# 1. الاتصال المباشر (الكاميرا مع التتبع الذكي)
 @app.websocket("/ws/detect")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    history_buffer.clear() # إعادة ضبط الذاكرة مع كل اتصال جديد
+    history_buffer.clear()
     
     try:
         while True:
             # استلام البيانات
             data = await websocket.receive_bytes()
             
-            # ✅ التعديل الجذري: حماية المعالجة بـ try داخلي لمنع انهيار الاتصال بالكامل
+            # اعطاء فرصة صغيرة جدا للسيرفر لمعالجة شارات الاتصال الروتينية (Ping/Pong)
+            await asyncio.sleep(0.001)
+            
             try:
                 if not model:
                     await websocket.send_text(json.dumps({"label": None, "confidence": 0.0, "is_stable": False}))
@@ -69,7 +70,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
 
                 def run_inference():
-                    return model.track(frame, imgsz=416, conf=0.45, persist=True, verbose=False)
+                    # استخدام predict أو track بأسلوب خفيف وواضح
+                    return model.predict(frame, imgsz=416, conf=0.40, verbose=False)
                 
                 results = await asyncio.to_thread(run_inference)
                 res = results[0]
@@ -91,7 +93,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 if len(valid_predictions) >= 4:
                     most_common, count = Counter(valid_predictions).most_common(1)[0]
-                    if count / len(history_buffer) >= 0.6:
+                    if count / len(history_buffer) >= 0.5:
                         smart_label = most_common
                         is_stable = True
 
@@ -102,14 +104,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 }))
                 
             except Exception as inner_e:
-                # إذا حدث خطأ في إطار واحد، اطبع الخطأ وأرسل رد فارغ بدلاً من فصل الاتصال
                 print(f"خطأ في معالجة الإطار: {inner_e}")
                 await websocket.send_text(json.dumps({"label": None, "confidence": 0.0, "is_stable": False}))
                 
     except WebSocketDisconnect:
         print("العميل قطع الاتصال")
     except Exception as e:
-        print(f"حدث خطأ فادح أدى لفصل الاتصال: {e}")
+        print(f"حدث خطأ أدى لفصل الاتصال: {e}")
 
 # 2. تحليل الصور الثابتة
 @app.post("/detect-image")
