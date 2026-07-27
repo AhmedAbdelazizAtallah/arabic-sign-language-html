@@ -35,6 +35,12 @@
             
             <div class="relative w-full rounded-xl overflow-hidden bg-black aspect-video border border-slate-700 flex items-center justify-center">
                 <video id="videoElement" autoplay playsinline class="w-full h-full object-cover transform scale-x-[-1]"></video>
+                
+                <!-- ✅ المربع الجديد: شبكة التوجيه (Guide Box) -->
+                <div id="guideBox" class="absolute hidden top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 border-2 border-dashed border-cyan-400 z-10 w-[80%] md:h-[80%] md:w-auto aspect-square rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.65)] pointer-events-none flex items-center justify-center">
+                    <span class="absolute bottom-2 text-cyan-400/70 text-sm md:text-base font-bold bg-black/50 px-2 py-1 rounded">ضع يدك هنا</span>
+                </div>
+
                 <img id="imageElement" class="w-full h-full object-contain hidden">
                 <canvas id="canvasElement" class="hidden"></canvas>
             </div>
@@ -49,7 +55,6 @@
         <div class="card p-4 md:p-6 rounded-2xl flex flex-col gap-4 lg:col-span-5 bg-slate-900 border border-slate-800">
             <h2 class="text-xl font-bold">✍️ الجملة المُكوَّنة</h2>
             
-            <!-- التعديل الجوهري لمنع خروج النص وتعديل التنسيق -->
             <div id="sentenceBox" class="sentence-box w-full min-h-[140px] max-h-[220px] p-4 rounded-xl border border-slate-700/60 bg-slate-950/80 text-2xl md:text-3xl font-bold leading-relaxed overflow-y-auto break-words whitespace-pre-wrap dir-rtl">
                 <span class="opacity-40 text-lg font-normal">ابدأ بالإشارة...</span>
             </div>
