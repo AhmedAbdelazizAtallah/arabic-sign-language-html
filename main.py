@@ -44,6 +44,7 @@ class TTSRequest(BaseModel):
     lang: str
 
 # 1. الاتصال المباشر (الكاميرا مع التتبع الذكي)
+# 1. الاتصال المباشر (الكاميرا مع التتبع الذكي)
 @app.websocket("/ws/detect")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -51,62 +52,64 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         while True:
-            # استلام البيانات الثنائية (Bytes) بدلاً من Base64 لتخفيف الحمل وسرعة النقل
+            # استلام البيانات
             data = await websocket.receive_bytes()
             
-            if not model:
-                await websocket.send_text(json.dumps({"label": None, "confidence": 0.0, "is_stable": False}))
-                continue
+            # ✅ التعديل الجذري: حماية المعالجة بـ try داخلي لمنع انهيار الاتصال بالكامل
+            try:
+                if not model:
+                    await websocket.send_text(json.dumps({"label": None, "confidence": 0.0, "is_stable": False}))
+                    continue
+                    
+                np_arr = np.frombuffer(data, np.uint8)
+                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
                 
-            np_arr = np.frombuffer(data, np.uint8)
-            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            
-            if frame is None:
+                if frame is None:
+                    await websocket.send_text(json.dumps({"label": None, "confidence": 0.0, "is_stable": False}))
+                    continue
+
+                def run_inference():
+                    return model.track(frame, imgsz=416, conf=0.45, persist=True, verbose=False)
+                
+                results = await asyncio.to_thread(run_inference)
+                res = results[0]
+                
+                current_label = None
+                current_conf = 0.0
+
+                if len(res.boxes) > 0:
+                    top_idx = res.boxes.conf.argmax().item()
+                    current_label = res.names[int(res.boxes.cls[top_idx].item())]
+                    current_conf = float(res.boxes.conf[top_idx].item())
+                    history_buffer.append(current_label)
+                else:
+                    history_buffer.append(None)
+
+                valid_predictions = [lbl for lbl in history_buffer if lbl is not None]
+                smart_label = None
+                is_stable = False
+                
+                if len(valid_predictions) >= 4:
+                    most_common, count = Counter(valid_predictions).most_common(1)[0]
+                    if count / len(history_buffer) >= 0.6:
+                        smart_label = most_common
+                        is_stable = True
+
+                await websocket.send_text(json.dumps({
+                    "label": smart_label,
+                    "confidence": current_conf,
+                    "is_stable": is_stable
+                }))
+                
+            except Exception as inner_e:
+                # إذا حدث خطأ في إطار واحد، اطبع الخطأ وأرسل رد فارغ بدلاً من فصل الاتصال
+                print(f"خطأ في معالجة الإطار: {inner_e}")
                 await websocket.send_text(json.dumps({"label": None, "confidence": 0.0, "is_stable": False}))
-                continue
-
-            # تشغيل التتبع في مسار منفصل (Thread) لمنع تجميد الخادم (Event Loop)
-            # تم استخدام imgsz=416 لتتطابق مع الداتا التي تم تدريب الموديل عليها
-            def run_inference():
-                return model.track(frame, imgsz=416, conf=0.45, persist=True, verbose=False)
-            
-            results = await asyncio.to_thread(run_inference)
-            res = results[0]
-            
-            current_label = None
-            current_conf = 0.0
-
-            if len(res.boxes) > 0:
-                top_idx = res.boxes.conf.argmax().item()
-                current_label = res.names[int(res.boxes.cls[top_idx].item())]
-                current_conf = float(res.boxes.conf[top_idx].item())
-                history_buffer.append(current_label)
-            else:
-                history_buffer.append(None)
-
-            # التصويت الأغلب (Majority Vote) لمنع الشوشرة والحروف الخاطئة
-            valid_predictions = [lbl for lbl in history_buffer if lbl is not None]
-            smart_label = None
-            is_stable = False
-            
-            if len(valid_predictions) >= 4:
-                most_common, count = Counter(valid_predictions).most_common(1)[0]
-                # الاعتماد فقط إذا تكررت الإشارة في 60% على الأقل من الفريمات الأخيرة
-                if count / len(history_buffer) >= 0.6:
-                    smart_label = most_common
-                    is_stable = True
-
-            # إرسال النتيجة فور الانتهاء
-            await websocket.send_text(json.dumps({
-                "label": smart_label,
-                "confidence": current_conf,
-                "is_stable": is_stable
-            }))
-            
+                
     except WebSocketDisconnect:
         print("العميل قطع الاتصال")
     except Exception as e:
-        print(f"حدث خطأ أثناء الاتصال: {e}")
+        print(f"حدث خطأ فادح أدى لفصل الاتصال: {e}")
 
 # 2. تحليل الصور الثابتة
 @app.post("/detect-image")
