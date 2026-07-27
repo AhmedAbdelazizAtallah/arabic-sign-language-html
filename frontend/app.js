@@ -12,6 +12,7 @@ const statusBadge = document.getElementById('statusBadge');
 const liveResult = document.getElementById('liveResult');
 const sentenceBox = document.getElementById('sentenceBox');
 const fileInput = document.getElementById('fileInput');
+const guideBox = document.getElementById('guideBox'); // متغير المربع الثابت
 
 // الأزرار
 const btnWebcam = document.getElementById('btnWebcam');
@@ -61,6 +62,7 @@ btnWebcam.onclick = () => {
     image.classList.add('hidden');
     video.classList.remove('hidden');
     video.classList.add('scale-x-[-1]'); // عكس الكاميرا المباشرة فقط
+    guideBox.classList.remove('hidden'); // إظهار المربع الثابت
     stopMedia();
     
     navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
@@ -84,6 +86,7 @@ fileInput.onchange = async (e) => {
     if (!file) return;
 
     stopMedia();
+    guideBox.classList.add('hidden'); // إخفاء المربع الثابت في حالة الصور والفيديو
 
     // 🎥 1. حالة رفع فيديو
     if (file.type.startsWith('video/')) {
@@ -228,7 +231,7 @@ function connectWebSocket() {
             if (currentMode === "webcam") liveResult.textContent = "⏳ جاري التتبع...";
         }
 
-        // 🎯 التعديل الأهم: لا نرسل الإطار الجديد إلا بعد استلام الرد!
+        // لا نرسل الإطار الجديد إلا بعد استلام الرد لمنع التقطيع (Server Flooding)
         if (currentMode === "webcam" && ws.readyState === WebSocket.OPEN) {
             requestAnimationFrame(sendFrame);
         }
@@ -241,12 +244,23 @@ function connectWebSocket() {
     };
 }
 
-// دالة إرسال الإطار معدلة لاستخدام البيانات الثنائية Blob
+// دالة إرسال الإطار معدلة لتقوم بقص المربع الأوسط بحجم 416x416 كما تدرب الموديل
 function sendFrame() {
     if (ws && ws.readyState === WebSocket.OPEN && video.videoWidth > 0 && currentMode === "webcam") {
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        
+        // حساب المربع الأوسط (Crop Box) بناءً على أبعاد الكاميرا الأصلية
+        const minDim = Math.min(vw, vh); 
+        const cropX = (vw - minDim) / 2; 
+        const cropY = (vh - minDim) / 2; 
+        
+        // إجبار الكانفاس ليكون 416x416 بالضبط
         canvas.width = 416;
-        canvas.height = (video.videoHeight / video.videoWidth) * 416 || 312;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.height = 416;
+        
+        // قص المربع الأوسط من الفيديو، ورسمه في الكانفاس بدون أي تشويه
+        ctx.drawImage(video, cropX, cropY, minDim, minDim, 0, 0, 416, 416);
         
         // استخدام Blob للإرسال الثنائي لتخفيف الحمل بدلاً من Base64
         canvas.toBlob((blob) => {
@@ -255,9 +269,8 @@ function sendFrame() {
             } else {
                 requestAnimationFrame(sendFrame);
             }
-        }, 'image/jpeg', 0.5);
+        }, 'image/jpeg', 0.6);
     } else if (currentMode === "webcam" && ws && ws.readyState === WebSocket.OPEN) {
-        // في حال لم يكن الفيديو جاهزاً بعد
         setTimeout(sendFrame, 100);
     }
 }
