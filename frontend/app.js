@@ -64,7 +64,14 @@ btnWebcam.onclick = () => {
     stopMedia();
     
     navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
-        .then(stream => { video.srcObject = stream; video.play(); })
+        .then(stream => { 
+            video.srcObject = stream; 
+            video.play(); 
+            // تشغيل التتبع إذا كان الاتصال مفتوحاً
+            if(ws && ws.readyState === WebSocket.OPEN) {
+                requestAnimationFrame(sendFrame);
+            }
+        })
         .catch(err => alert("يرجى السماح بالوصول للكاميرا."));
 };
 
@@ -85,23 +92,22 @@ fileInput.onchange = async (e) => {
 
         image.classList.add('hidden');
         video.classList.remove('hidden');
-        video.classList.remove('scale-x-[-1]'); // عدم عكس الفيديو المسجل
+        video.classList.remove('scale-x-[-1]'); 
 
         const videoURL = URL.createObjectURL(file);
         video.src = videoURL;
         
         let lastVideoLabel = "";
-        let isProcessingFrame = false; // لمنع تراكم الفريمات وحدوث التغبيش
+        let isProcessingFrame = false; 
 
         video.onloadeddata = () => {
             video.play().catch(err => console.log("خطأ تشغيل الفيديو:", err));
             liveResult.textContent = "⏳ جاري تحليل الفيديو بذكاء...";
 
-            // قراءة الإطارات كل 200 ملي ثانية بشرط جاهزية الخادم
             videoInterval = setInterval(() => {
                 if (video.paused || video.ended || isProcessingFrame) return;
 
-                isProcessingFrame = true; // إغلاق المعالجة لحين استقبال رد السيرفر
+                isProcessingFrame = true; 
 
                 canvas.width = video.videoWidth || 640;
                 canvas.height = video.videoHeight || 480;
@@ -134,9 +140,9 @@ fileInput.onchange = async (e) => {
                     } catch (err) {
                         console.error("Video processing error:", err);
                     } finally {
-                        isProcessingFrame = false; // فتح المعالجة للإطار التالي
+                        isProcessingFrame = false; 
                     }
-                }, 'image/jpeg', 0.85); // رفع جودة الصورة لـ 85% للحد من التشويش
+                }, 'image/jpeg', 0.85); 
             }, 200);
         };
 
@@ -188,7 +194,7 @@ fileInput.onchange = async (e) => {
     fileInput.value = ""; 
 };
 
-// ================= 2. الاتصال المباشر (WebSocket) =================
+// ================= 2. الاتصال المباشر (WebSocket) والطلب المتزامن =================
 
 function connectWebSocket() {
     ws = new WebSocket(WS_URL);
@@ -196,7 +202,11 @@ function connectWebSocket() {
     ws.onopen = () => {
         statusBadge.textContent = "متصل ✅";
         statusBadge.className = "bg-green-500/80 px-4 py-2 rounded-full backdrop-blur-sm text-sm";
-        setInterval(sendFrame, 100); 
+        
+        // إرسال الإطار الأول فقط ليبدأ الـ Loop
+        if (currentMode === "webcam") {
+            requestAnimationFrame(sendFrame);
+        }
     };
 
     ws.onmessage = (event) => {
@@ -217,6 +227,11 @@ function connectWebSocket() {
         } else {
             if (currentMode === "webcam") liveResult.textContent = "⏳ جاري التتبع...";
         }
+
+        // 🎯 التعديل الأهم: لا نرسل الإطار الجديد إلا بعد استلام الرد!
+        if (currentMode === "webcam" && ws.readyState === WebSocket.OPEN) {
+            requestAnimationFrame(sendFrame);
+        }
     };
 
     ws.onclose = () => {
@@ -226,12 +241,24 @@ function connectWebSocket() {
     };
 }
 
+// دالة إرسال الإطار معدلة لاستخدام البيانات الثنائية Blob
 function sendFrame() {
     if (ws && ws.readyState === WebSocket.OPEN && video.videoWidth > 0 && currentMode === "webcam") {
         canvas.width = 416;
         canvas.height = (video.videoHeight / video.videoWidth) * 416 || 312;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        ws.send(canvas.toDataURL('image/jpeg', 0.5));
+        
+        // استخدام Blob للإرسال الثنائي لتخفيف الحمل بدلاً من Base64
+        canvas.toBlob((blob) => {
+            if (blob) {
+                ws.send(blob);
+            } else {
+                requestAnimationFrame(sendFrame);
+            }
+        }, 'image/jpeg', 0.5);
+    } else if (currentMode === "webcam" && ws && ws.readyState === WebSocket.OPEN) {
+        // في حال لم يكن الفيديو جاهزاً بعد
+        setTimeout(sendFrame, 100);
     }
 }
 
@@ -239,7 +266,6 @@ function sendFrame() {
 
 function updateUI() {
     sentenceBox.innerHTML = currentText || '<span class="opacity-40 text-lg font-normal">ابدأ بالإشارة...</span>';
-    // التمرير التلقائي لأسفل عند كتابة نص طويل
     sentenceBox.scrollTop = sentenceBox.scrollHeight;
 }
 
