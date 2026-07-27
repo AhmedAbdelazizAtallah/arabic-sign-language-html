@@ -12,7 +12,7 @@ const statusBadge = document.getElementById('statusBadge');
 const liveResult = document.getElementById('liveResult');
 const sentenceBox = document.getElementById('sentenceBox');
 const fileInput = document.getElementById('fileInput');
-const guideBox = document.getElementById('guideBox'); // متغير المربع الثابت
+const guideBox = document.getElementById('guideBox');
 
 // الأزرار
 const btnWebcam = document.getElementById('btnWebcam');
@@ -26,6 +26,11 @@ let lastDetected = "";
 let inCooldown = false;
 let currentMode = "webcam"; 
 let videoInterval = null; 
+
+// 🎯 حماية صريحة لمنع تداخل اللُوبات ولتجنب إغراق السيرفر
+let isAwaitingResponse = false;
+let sendTimeoutId = null;
+let reconnectTimeoutId = null;
 
 const COOLDOWN_MS = 1000;   
 
@@ -61,18 +66,17 @@ btnWebcam.onclick = () => {
     updateTabStyles(btnWebcam);
     image.classList.add('hidden');
     video.classList.remove('hidden');
-    video.classList.add('scale-x-[-1]'); // عكس الكاميرا المباشرة فقط
-    guideBox.classList.remove('hidden'); // إظهار المربع الثابت
+    video.classList.add('scale-x-[-1]'); 
+    if (guideBox) guideBox.classList.remove('hidden');
     stopMedia();
     
     navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
         .then(stream => { 
             video.srcObject = stream; 
             video.play(); 
-            // تشغيل التتبع إذا كان الاتصال مفتوحاً
-            if(ws && ws.readyState === WebSocket.OPEN) {
-                requestAnimationFrame(sendFrame);
-            }
+            // إعادة ضبط العدادات وإرسال أول إطار بحذر
+            isAwaitingResponse = false;
+            scheduleNextFrame(100);
         })
         .catch(err => alert("يرجى السماح بالوصول للكاميرا."));
 };
@@ -86,9 +90,8 @@ fileInput.onchange = async (e) => {
     if (!file) return;
 
     stopMedia();
-    guideBox.classList.add('hidden'); // إخفاء المربع الثابت في حالة الصور والفيديو
+    if (guideBox) guideBox.classList.add('hidden');
 
-    // 🎥 1. حالة رفع فيديو
     if (file.type.startsWith('video/')) {
         currentMode = "video";
         updateTabStyles(btnVideo);
@@ -154,7 +157,6 @@ fileInput.onchange = async (e) => {
             liveResult.textContent = "✅ اكتمل تحليل الفيديو";
         };
     } 
-    // 🖼️ 2. حالة رفع صورة
     else if (file.type.startsWith('image/')) {
         currentMode = "image";
         updateTabStyles(btnImage);
@@ -197,82 +199,111 @@ fileInput.onchange = async (e) => {
     fileInput.value = ""; 
 };
 
-// ================= 2. الاتصال المباشر (WebSocket) والطلب المتزامن =================
+// ================= 2. الاتصال المباشر (WebSocket المحمي) =================
 
 function connectWebSocket() {
+    // تنظيف الاتصال والعدادات القديمة تماماً قبل فتح اتصال جديد
+    if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        ws.close();
+    }
+    clearTimeout(sendTimeoutId);
+    clearTimeout(reconnectTimeoutId);
+    isAwaitingResponse = false;
+
     ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
         statusBadge.textContent = "متصل ✅";
         statusBadge.className = "bg-green-500/80 px-4 py-2 rounded-full backdrop-blur-sm text-sm";
-        
-        // إرسال الإطار الأول فقط ليبدأ الـ Loop
-        if (currentMode === "webcam") {
-            requestAnimationFrame(sendFrame);
-        }
+        scheduleNextFrame(100);
     };
 
-ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        
-        if (data.is_stable && data.label) {
-            const confPercent = Math.round((data.confidence || 0) * 100);
-            liveResult.textContent = `${data.label} (${confPercent}%)`;
+    ws.onmessage = (event) => {
+        isAwaitingResponse = false; // فتح القفل فور استلام الرد
 
-            if (!inCooldown && data.label !== lastDetected) {
-                currentText += data.label;
-                lastDetected = data.label;
-                updateUI();
-                
-                inCooldown = true;
-                setTimeout(() => { inCooldown = false; }, COOLDOWN_MS);
+        try {
+            const data = JSON.parse(event.data);
+            
+            if (data.is_stable && data.label) {
+                const confPercent = Math.round((data.confidence || 0) * 100);
+                liveResult.textContent = `${data.label} (${confPercent}%)`;
+
+                if (!inCooldown && data.label !== lastDetected) {
+                    currentText += data.label;
+                    lastDetected = data.label;
+                    updateUI();
+                    
+                    inCooldown = true;
+                    setTimeout(() => { inCooldown = false; }, COOLDOWN_MS);
+                }
+            } else {
+                if (currentMode === "webcam") liveResult.textContent = "⏳ جاري التتبع...";
             }
-        } else {
-            if (currentMode === "webcam") liveResult.textContent = "⏳ جاري التتبع...";
+        } catch (e) {
+            console.error("Error parsing WS message:", e);
         }
 
-        // ✅ التعديل: إضافة تأخير 30 ملي ثانية (يعادل 33 FPS) لمنع خنق السيرفر
-        if (currentMode === "webcam" && ws.readyState === WebSocket.OPEN) {
-            setTimeout(sendFrame, 30); 
-        }
+        // جدولة الإطار التالي بعد 50ms فقط من استلام النتيجة (حوالي 20FPS مستقرة جداً)
+        scheduleNextFrame(50);
+    };
+
+    ws.onerror = (err) => {
+        console.error("WebSocket Error:", err);
+        isAwaitingResponse = false;
     };
 
     ws.onclose = () => {
         statusBadge.textContent = "غير متصل ❌";
         statusBadge.className = "bg-red-500/80 px-4 py-2 rounded-full backdrop-blur-sm text-sm";
-        setTimeout(connectWebSocket, 2000);
+        isAwaitingResponse = false;
+        clearTimeout(sendTimeoutId);
+        
+        // إعادة الاتصال بعد ثانيتين بدون تكرار العدادات
+        clearTimeout(reconnectTimeoutId);
+        reconnectTimeoutId = setTimeout(connectWebSocket, 2000);
     };
 }
 
-// دالة إرسال الإطار معدلة لتقوم بقص المربع الأوسط بحجم 416x416 كما تدرب الموديل
+function scheduleNextFrame(delayMs) {
+    clearTimeout(sendTimeoutId);
+    sendTimeoutId = setTimeout(sendFrame, delayMs);
+}
+
 function sendFrame() {
-    if (ws && ws.readyState === WebSocket.OPEN && video.videoWidth > 0 && currentMode === "webcam") {
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
-        
-        // حساب المربع الأوسط (Crop Box) بناءً على أبعاد الكاميرا الأصلية
-        const minDim = Math.min(vw, vh); 
-        const cropX = (vw - minDim) / 2; 
-        const cropY = (vh - minDim) / 2; 
-        
-        // إجبار الكانفاس ليكون 416x416 بالضبط
-        canvas.width = 416;
-        canvas.height = 416;
-        
-        // قص المربع الأوسط من الفيديو، ورسمه في الكانفاس بدون أي تشويه
-        ctx.drawImage(video, cropX, cropY, minDim, minDim, 0, 0, 416, 416);
-        
-        // استخدام Blob للإرسال الثنائي لتخفيف الحمل بدلاً من Base64
-        canvas.toBlob((blob) => {
-            if (blob) {
-                ws.send(blob);
-            } else {
-                requestAnimationFrame(sendFrame);
-            }
-        }, 'image/jpeg', 0.6);
-    } else if (currentMode === "webcam" && ws && ws.readyState === WebSocket.OPEN) {
-        setTimeout(sendFrame, 100);
+    // إذا كنا ننتظر رد سابق أو الاتصال غير جاهز، لا تفعل شيئاً وركز في حماية النظام
+    if (isAwaitingResponse || !ws || ws.readyState !== WebSocket.OPEN || currentMode !== "webcam" || video.videoWidth === 0) {
+        if (currentMode === "webcam" && ws && ws.readyState === WebSocket.OPEN && !isAwaitingResponse) {
+            scheduleNextFrame(100);
+        }
+        return;
     }
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    
+    const minDim = Math.min(vw, vh); 
+    const cropX = (vw - minDim) / 2; 
+    const cropY = (vh - minDim) / 2; 
+    
+    canvas.width = 416;
+    canvas.height = 416;
+    
+    ctx.drawImage(video, cropX, cropY, minDim, minDim, 0, 0, 416, 416);
+    
+    isAwaitingResponse = true; // إغلاق القفل لحين استلام الرد من السيرفر
+
+    canvas.toBlob((blob) => {
+        if (blob && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(blob);
+        } else {
+            isAwaitingResponse = false;
+            scheduleNextFrame(100);
+        }
+    }, 'image/jpeg', 0.6);
 }
 
 // ================= 3. إدارة الواجهة للجملة =================
